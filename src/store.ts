@@ -168,6 +168,9 @@ const DEFAULT_SETTINGS: Settings = {
 // ─── Storage ───────────────────────────────────────────────────────────────────
 
 const STORAGE_KEY = "fittrack_state";
+// Increment this when historical data changes to force a re-merge
+const HISTORICAL_VERSION = 2;
+const VERSION_KEY = "fittrack_hist_version";
 
 function buildInitialDays(): Record<string, DayLog> {
   const map: Record<string, DayLog> = {};
@@ -180,20 +183,30 @@ function buildInitialDays(): Record<string, DayLog> {
 export function loadState(): AppState {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
+    const savedVersion = parseInt(localStorage.getItem(VERSION_KEY) ?? "0", 10);
+    const historical = buildInitialDays();
+
     if (raw) {
       const parsed = JSON.parse(raw) as AppState;
-      // Merge historical days that might be missing
-      const historical = buildInitialDays();
+      // Always merge historical days that might be missing
       for (const [date, day] of Object.entries(historical)) {
         if (!parsed.days[date]) {
           parsed.days[date] = day;
         }
+      }
+      // If version changed, force re-merge (overwrite historical days with fresh data)
+      if (savedVersion < HISTORICAL_VERSION) {
+        for (const [date, day] of Object.entries(historical)) {
+          parsed.days[date] = day;
+        }
+        localStorage.setItem(VERSION_KEY, String(HISTORICAL_VERSION));
       }
       return parsed;
     }
   } catch {
     // ignore
   }
+  localStorage.setItem(VERSION_KEY, String(HISTORICAL_VERSION));
   return {
     settings: DEFAULT_SETTINGS,
     days: buildInitialDays(),

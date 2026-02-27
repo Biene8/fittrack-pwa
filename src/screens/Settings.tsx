@@ -8,11 +8,18 @@ export default function Settings() {
 
   const [form, setForm] = useState({ ...settings });
   const [saved, setSaved] = useState(false);
+  const [resetDone, setResetDone] = useState(false);
 
   function handleSave() {
     updateSettings(form);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
+  }
+
+  function handleReloadHistory() {
+    // Force re-merge by clearing the version key, then reload
+    localStorage.removeItem("fittrack_hist_version");
+    window.location.reload();
   }
 
   const previewBMR = calcBMR(form);
@@ -25,6 +32,8 @@ export default function Settings() {
     { value: 1.725, label: "Sehr aktiv (6-7×/Woche)" },
     { value: 1.9, label: "Extrem aktiv (2×/Tag)" },
   ];
+
+  const totalDays = Object.keys(state.days).length;
 
   return (
     <div className="screen">
@@ -102,6 +111,21 @@ export default function Settings() {
         <button className="btn btn-primary" onClick={handleSave} style={{ width: "100%" }}>
           {saved ? "✓ Gespeichert!" : "Einstellungen speichern"}
         </button>
+
+        {/* Data management */}
+        <div className="card">
+          <div className="section-title">Datenverwaltung</div>
+          <div style={{ fontSize: 13, color: "var(--muted)", marginTop: 8, marginBottom: 12 }}>
+            Aktuell {totalDays} Tage gespeichert. Falls der Verlauf leer erscheint, historische Daten neu laden.
+          </div>
+          <button
+            className="btn"
+            onClick={handleReloadHistory}
+            style={{ width: "100%", background: "var(--blue)", color: "#fff" }}
+          >
+            🔄 Historische Daten neu laden
+          </button>
+        </div>
 
         {/* Info */}
         <div className="card" style={{ background: "var(--surface2)" }}>
