@@ -1,3 +1,3 @@
 
 ## Bugfixes
-- [ ] Verlauf-Screen zeigt keine historischen Daten an
+- [x] Verlauf-Screen zeigt keine historischen Daten an
