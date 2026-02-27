@@ -180,6 +180,10 @@ function buildInitialDays(): Record<string, DayLog> {
   return map;
 }
 
+export function getHistoricalDays(): DayLog[] {
+  return HISTORICAL_DAYS;
+}
+
 export function loadState(): AppState {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);

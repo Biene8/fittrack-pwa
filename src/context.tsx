@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useReducer, useEffect, useCallback } from "react";
 import {
   AppState, DayLog, FoodEntry, TrainingEntry, Settings,
-  loadState, saveState, todayKey, calcBMR,
+  loadState, saveState, todayKey, calcBMR, getHistoricalDays,
 } from "./store";
 
 // ─── Actions ──────────────────────────────────────────────────────────────────
@@ -14,7 +14,8 @@ type Action =
   | { type: "ADD_TRAINING"; payload: Omit<TrainingEntry, "id" | "timestamp"> }
   | { type: "REMOVE_TRAINING"; payload: { date: string; id: string } }
   | { type: "LOG_WEIGHT"; payload: { weight_kg: number } }
-  | { type: "UPDATE_SETTINGS"; payload: Partial<Settings> };
+  | { type: "UPDATE_SETTINGS"; payload: Partial<Settings> }
+  | { type: "FORCE_MERGE_HISTORICAL" };
 
 function uid() {
   return Math.random().toString(36).slice(2, 10);
@@ -82,6 +83,17 @@ function reducer(state: AppState, action: Action): AppState {
       const updated = { ...newSettings, bmr: newBMR, kcal_goal: newBMR - newSettings.kcal_deficit };
       return { ...state, settings: updated };
     }
+    case "FORCE_MERGE_HISTORICAL": {
+      // Merge all historical days into current state (only adds missing ones)
+      const historical = getHistoricalDays();
+      const newDays = { ...state.days };
+      for (const day of historical) {
+        if (!newDays[day.date]) {
+          newDays[day.date] = day;
+        }
+      }
+      return { ...state, days: newDays };
+    }
     default:
       return state;
   }
@@ -99,6 +111,7 @@ interface AppContextValue {
   removeTraining: (date: string, id: string) => void;
   logWeight: (weight_kg: number) => void;
   updateSettings: (s: Partial<Settings>) => void;
+  forceReloadHistory: () => void;
   todayLog: DayLog;
 }
 
@@ -106,6 +119,11 @@ const AppContext = createContext<AppContextValue | null>(null);
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, undefined, loadState);
+
+  // On every mount, ensure historical data is present
+  useEffect(() => {
+    dispatch({ type: "FORCE_MERGE_HISTORICAL" });
+  }, []);
 
   useEffect(() => {
     saveState(state);
@@ -123,9 +141,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const removeTraining = useCallback((date: string, id: string) => dispatch({ type: "REMOVE_TRAINING", payload: { date, id } }), []);
   const logWeight = useCallback((weight_kg: number) => dispatch({ type: "LOG_WEIGHT", payload: { weight_kg } }), []);
   const updateSettings = useCallback((s: Partial<Settings>) => dispatch({ type: "UPDATE_SETTINGS", payload: s }), []);
+  const forceReloadHistory = useCallback(() => dispatch({ type: "FORCE_MERGE_HISTORICAL" }), []);
 
   return (
-    <AppContext.Provider value={{ state, startDay, endDay, addFood, removeFood, addTraining, removeTraining, logWeight, updateSettings, todayLog }}>
+    <AppContext.Provider value={{ state, startDay, endDay, addFood, removeFood, addTraining, removeTraining, logWeight, updateSettings, forceReloadHistory, todayLog }}>
       {children}
     </AppContext.Provider>
   );
