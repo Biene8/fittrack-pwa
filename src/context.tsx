@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useReducer, useEffect, useCallback } from "react";
 import {
   AppState, DayLog, FoodEntry, TrainingEntry, Settings,
-  loadState, saveState, todayKey, calcBMR, getHistoricalDays,
+  loadState, saveState, todayKey, calcBMR, getHistoricalDays, getDayTotals,
 } from "./store";
 
 // ─── Actions ──────────────────────────────────────────────────────────────────
@@ -15,21 +15,28 @@ type Action =
   | { type: "REMOVE_TRAINING"; payload: { date: string; id: string } }
   | { type: "LOG_WEIGHT"; payload: { weight_kg: number } }
   | { type: "UPDATE_SETTINGS"; payload: Partial<Settings> }
-  | { type: "FORCE_MERGE_HISTORICAL" };
+  | { type: "FORCE_MERGE_HISTORICAL" }
+  // Date-specific actions for editing past/future days
+  | { type: "ADD_FOOD_TO_DATE"; payload: { date: string } & Omit<FoodEntry, "id" | "timestamp"> }
+  | { type: "ADD_TRAINING_TO_DATE"; payload: { date: string } & Omit<TrainingEntry, "id" | "timestamp"> }
+  | { type: "FILL_WITH_AVERAGE"; payload: { date: string } };
 
 function uid() {
   return Math.random().toString(36).slice(2, 10);
 }
 
-function ensureToday(state: AppState): DayLog {
-  const key = todayKey();
-  return state.days[key] ?? {
-    date: key,
+function ensureDay(state: AppState, date: string): DayLog {
+  return state.days[date] ?? {
+    date,
     food: [],
     training: [],
-    dayStarted: false,
-    dayEnded: false,
+    dayStarted: true,
+    dayEnded: true,
   };
+}
+
+function ensureToday(state: AppState): DayLog {
+  return ensureDay(state, todayKey());
 }
 
 function reducer(state: AppState, action: Action): AppState {
@@ -84,7 +91,6 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, settings: updated };
     }
     case "FORCE_MERGE_HISTORICAL": {
-      // Merge all historical days into current state (only adds missing ones)
       const historical = getHistoricalDays();
       const newDays = { ...state.days };
       for (const day of historical) {
@@ -93,6 +99,44 @@ function reducer(state: AppState, action: Action): AppState {
         }
       }
       return { ...state, days: newDays };
+    }
+    case "ADD_FOOD_TO_DATE": {
+      const { date, ...foodData } = action.payload;
+      const day = ensureDay(state, date);
+      const entry: FoodEntry = { ...foodData, id: uid(), timestamp: `${date}T12:00:00Z` };
+      return { ...state, days: { ...state.days, [date]: { ...day, food: [...day.food, entry] } } };
+    }
+    case "ADD_TRAINING_TO_DATE": {
+      const { date, ...trainingData } = action.payload;
+      const day = ensureDay(state, date);
+      const entry: TrainingEntry = { ...trainingData, id: uid(), timestamp: `${date}T17:00:00Z` };
+      return { ...state, days: { ...state.days, [date]: { ...day, training: [...day.training, entry] } } };
+    }
+    case "FILL_WITH_AVERAGE": {
+      const { date } = action.payload;
+      // Calculate average from last 14 tracked days (excluding the target date)
+      const trackedDays = Object.values(state.days)
+        .filter(d => d.date !== date && d.dayEnded && d.food.length > 0)
+        .sort((a, b) => b.date.localeCompare(a.date))
+        .slice(0, 14);
+      if (trackedDays.length === 0) return state;
+      const avgKcal = Math.round(trackedDays.reduce((s, d) => s + getDayTotals(d).kcal, 0) / trackedDays.length);
+      const avgProtein = Math.round(trackedDays.reduce((s, d) => s + getDayTotals(d).protein_g, 0) / trackedDays.length);
+      const day = ensureDay(state, date);
+      const entry: FoodEntry = {
+        id: uid(),
+        description: `Ø-Tag (${avgKcal} kcal, ${avgProtein}g P – Durchschnitt)`,
+        kcal: avgKcal,
+        protein_g: avgProtein,
+        timestamp: `${date}T12:00:00Z`,
+      };
+      return {
+        ...state,
+        days: {
+          ...state.days,
+          [date]: { ...day, food: [...day.food, entry], dayStarted: true, dayEnded: true },
+        },
+      };
     }
     default:
       return state;
@@ -112,6 +156,9 @@ interface AppContextValue {
   logWeight: (weight_kg: number) => void;
   updateSettings: (s: Partial<Settings>) => void;
   forceReloadHistory: () => void;
+  addFoodToDate: (date: string, f: Omit<FoodEntry, "id" | "timestamp">) => void;
+  addTrainingToDate: (date: string, t: Omit<TrainingEntry, "id" | "timestamp">) => void;
+  fillWithAverage: (date: string) => void;
   todayLog: DayLog;
 }
 
@@ -142,9 +189,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const logWeight = useCallback((weight_kg: number) => dispatch({ type: "LOG_WEIGHT", payload: { weight_kg } }), []);
   const updateSettings = useCallback((s: Partial<Settings>) => dispatch({ type: "UPDATE_SETTINGS", payload: s }), []);
   const forceReloadHistory = useCallback(() => dispatch({ type: "FORCE_MERGE_HISTORICAL" }), []);
+  const addFoodToDate = useCallback((date: string, f: Omit<FoodEntry, "id" | "timestamp">) =>
+    dispatch({ type: "ADD_FOOD_TO_DATE", payload: { date, ...f } }), []);
+  const addTrainingToDate = useCallback((date: string, t: Omit<TrainingEntry, "id" | "timestamp">) =>
+    dispatch({ type: "ADD_TRAINING_TO_DATE", payload: { date, ...t } }), []);
+  const fillWithAverage = useCallback((date: string) =>
+    dispatch({ type: "FILL_WITH_AVERAGE", payload: { date } }), []);
 
   return (
-    <AppContext.Provider value={{ state, startDay, endDay, addFood, removeFood, addTraining, removeTraining, logWeight, updateSettings, forceReloadHistory, todayLog }}>
+    <AppContext.Provider value={{
+      state, startDay, endDay, addFood, removeFood, addTraining, removeTraining,
+      logWeight, updateSettings, forceReloadHistory,
+      addFoodToDate, addTrainingToDate, fillWithAverage,
+      todayLog,
+    }}>
       {children}
     </AppContext.Provider>
   );
