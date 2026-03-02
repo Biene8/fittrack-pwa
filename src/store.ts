@@ -184,6 +184,22 @@ export function getHistoricalDays(): DayLog[] {
   return HISTORICAL_DAYS;
 }
 
+/** Fills all missing days between the earliest known entry and today with empty DayLog entries. */
+function fillMissingDays(days: Record<string, DayLog>): void {
+  const today = new Date().toISOString().slice(0, 10);
+  const allDates = Object.keys(days).sort();
+  if (allDates.length === 0) return;
+  const cur = new Date(allDates[0] + "T12:00:00");
+  const end = new Date(today + "T12:00:00");
+  while (cur <= end) {
+    const key = cur.toISOString().slice(0, 10);
+    if (!days[key]) {
+      days[key] = { date: key, food: [], training: [], dayStarted: false, dayEnded: false };
+    }
+    cur.setDate(cur.getDate() + 1);
+  }
+}
+
 export function loadState(): AppState {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -205,15 +221,19 @@ export function loadState(): AppState {
         }
         localStorage.setItem(VERSION_KEY, String(HISTORICAL_VERSION));
       }
+      // Fill any gaps between historical data and today
+      fillMissingDays(parsed.days);
       return parsed;
     }
   } catch {
     // ignore
   }
   localStorage.setItem(VERSION_KEY, String(HISTORICAL_VERSION));
+  const days = buildInitialDays();
+  fillMissingDays(days);
   return {
     settings: DEFAULT_SETTINGS,
-    days: buildInitialDays(),
+    days,
   };
 }
 
